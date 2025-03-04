@@ -1,5 +1,5 @@
 use std::fs;
-use std::thread;
+use std::{ thread, time };
 use std::sync::{ Arc, Mutex };
 use std::collections::BinaryHeap;
 
@@ -52,19 +52,61 @@ impl Config {
 }
 
 pub fn run(config : Config) {
-    search_workers(config.target, config.dir, 1); 
+    // search_single_thread(config.target, config.dir); 
+    search_workers(config.target, config.dir, 4);
 }
 
-fn search_workers(target : String, dir : String, workers: usize) {
-    assert_ne!(workers, 0);
+fn search_workers(target : String, dir : String, n_workers: usize) {
+    assert_ne!(n_workers, 0);
     let heap : Arc<Mutex<BinaryHeap<String>>> = Arc::new(Mutex::new(BinaryHeap::new()));
+    let target : Arc<String> = Arc::new(target);
     heap.lock().unwrap().push(dir);
+    let mut workers = Vec::new();
+    for _ in 0..n_workers {
+        let heap_clone = Arc::clone(&heap);
+        let target_clone = Arc::clone(&target);
+        workers.push(thread::spawn( move || {
+            loop {
+                if let Some(current_dir) = { 
+                    let mut lock = heap_clone.lock().unwrap();
+                    lock.pop()
+                } {
+                    match fs::read_dir(&current_dir) {
+                        Ok(contents) => {
+                            for file in contents {
+                                let file = file.unwrap();
+                                let file_string = file.path().into_os_string().into_string().unwrap();
+                                if file_string.contains(target_clone.as_str()) {
+                                    println!("{}", &file_string);
+                                }
+                    
+                                if file.metadata().unwrap().is_dir() {
+                                    heap_clone.lock().unwrap().push(file_string);
+                                }
+                            }
+                        },
+                        Err(err) => {
+                            eprintln!("Unable to read directory {current_dir}: {err}");
+                        }
+                    }
+                } else {
+                    break;
+                }
+            }
+        }));
+        thread::sleep(time::Duration::from_millis(10));
+    }
+    for worker in workers {
+        worker.join();
+    }
+}
+
+fn search_single_thread(target: String, dir: String) {
+    let mut heap : BinaryHeap<String> = BinaryHeap::new();
+    heap.push(dir);
 
     // Perform the search
-    while let Some(current_dir) = { 
-        let mut heap_lock = heap.lock().unwrap();
-        heap_lock.pop() 
-    } {
+    while let Some(current_dir) = heap.pop() {
         // Read the contents of the directory
         if let Ok(contents) = fs::read_dir(current_dir){
             for file in contents {
@@ -75,12 +117,9 @@ fn search_workers(target : String, dir : String, workers: usize) {
                 }
     
                 if file.metadata().unwrap().is_dir() {
-                    heap.lock().unwrap().push(file_string);
+                    heap.push(file_string);
                 }
             }
-        } else {
-            eprintln!("Error reading directory");
-        }
+        };
     }
-    println!("Finished Searching.");   
 }
