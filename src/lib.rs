@@ -10,6 +10,8 @@ use parse_args::Args;
 pub struct Config {
     dir: String,
     target: String,
+    ignore_case: bool,
+    workers: usize,
 }
 
 impl Config {
@@ -18,6 +20,8 @@ impl Config {
     ) -> Result<Config, &'static str> {
 
         let mut dir : String = String::from(".");
+        let mut ignore_case : bool = false;
+        let mut workers = 4;
 
         // Parse the arguments provided into positional Arguments, Flags, and Keywork Arguments
         let mut parsed_args : Args;
@@ -31,7 +35,15 @@ impl Config {
         for kw in parsed_args.keywords {
             match kw.keyword.as_str() {
                 "--dir" => dir = kw.value,
+                "--workers" => workers = kw.value.parse().unwrap(), 
                 _ => return Err("Unknown keyword argument received."),
+            }
+        }
+
+        for flag in parsed_args.flags {
+            match flag.as_str() {
+                "-ic" => ignore_case = true,
+                _ => return Err("Unknown flag received"),
             }
         }
 
@@ -46,23 +58,26 @@ impl Config {
         }
 
         Ok(
-            Config { target, dir, }
+            Config { target, dir, ignore_case, workers}
         )
     }
 }
 
 pub fn run(config : Config) {
-    // search_single_thread(config.target, config.dir); 
-    search_workers(config.target, config.dir, 4);
+    if config.workers == 1 {
+        search_single_thread(config);
+    } else {
+        search_workers(config);
+    }
 }
 
-fn search_workers(target : String, dir : String, n_workers: usize) {
-    assert_ne!(n_workers, 0);
+fn search_workers(config : Config) {
+    assert_ne!(config.workers, 0);
     let heap : Arc<Mutex<BinaryHeap<String>>> = Arc::new(Mutex::new(BinaryHeap::new()));
-    let target : Arc<String> = Arc::new(target);
-    heap.lock().unwrap().push(dir);
+    let target : Arc<String> = Arc::new(if config.ignore_case { config.target.to_lowercase() } else { config.target });
+    heap.lock().unwrap().push(config.dir);
     let mut workers = Vec::new();
-    for _ in 0..n_workers {
+    for _ in 0..config.workers {
         let heap_clone = Arc::clone(&heap);
         let target_clone = Arc::clone(&target);
         workers.push(thread::spawn( move || {
@@ -76,10 +91,17 @@ fn search_workers(target : String, dir : String, n_workers: usize) {
                             for file in contents {
                                 let file = file.unwrap();
                                 let file_string = file.path().into_os_string().into_string().unwrap();
-                                if file_string.contains(target_clone.as_str()) {
-                                    println!("{}", &file_string);
+                                
+                                if config.ignore_case {
+                                    if file_string.to_lowercase().contains(target_clone.as_str()) {
+                                        println!("{}", &file_string);
+                                    }
+                                } else {
+                                    if file_string.contains(target_clone.as_str()) {
+                                        println!("{}", &file_string);
+                                    }
                                 }
-                    
+
                                 if file.metadata().unwrap().is_dir() {
                                     heap_clone.lock().unwrap().push(file_string);
                                 }
@@ -97,13 +119,14 @@ fn search_workers(target : String, dir : String, n_workers: usize) {
         thread::sleep(time::Duration::from_millis(10));
     }
     for worker in workers {
-        worker.join();
+        worker.join().unwrap();
     }
 }
 
-fn search_single_thread(target: String, dir: String) {
+fn search_single_thread(config: Config) {
     let mut heap : BinaryHeap<String> = BinaryHeap::new();
-    heap.push(dir);
+    heap.push(config.dir);
+    let target = if config.ignore_case { config.target.to_lowercase() } else { config.target };
 
     // Perform the search
     while let Some(current_dir) = heap.pop() {
@@ -112,8 +135,14 @@ fn search_single_thread(target: String, dir: String) {
             for file in contents {
                 let file = file.unwrap();
                 let file_string = file.path().into_os_string().into_string().unwrap();
-                if file_string.contains(target.as_str()) {
-                    println!("{}", &file_string);
+                if config.ignore_case {
+                    if file_string.to_lowercase().contains(target.as_str()) {
+                        println!("{}", &file_string);
+                    }
+                } else {
+                    if file_string.contains(target.as_str()) {
+                        println!("{}", &file_string);
+                    }
                 }
     
                 if file.metadata().unwrap().is_dir() {
