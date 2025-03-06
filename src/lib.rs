@@ -21,7 +21,7 @@ impl Config {
 
         let mut dir : String = String::from(".");
         let mut ignore_case : bool = false;
-        let mut workers = 4;
+        let mut workers = 8;
 
         // Parse the arguments provided into positional Arguments, Flags, and Keywork Arguments
         let mut parsed_args : Args;
@@ -35,7 +35,7 @@ impl Config {
         for kw in parsed_args.keywords {
             match kw.keyword.as_str() {
                 "--dir" => dir = kw.value,
-                "--workers" => workers = kw.value.parse().unwrap(), 
+                "--workers" => workers = kw.value.parse().unwrap(),
                 _ => return Err("Unknown keyword argument received."),
             }
         }
@@ -43,6 +43,7 @@ impl Config {
         for flag in parsed_args.flags {
             match flag.as_str() {
                 "-ic" => ignore_case = true,
+                "-h" => return Err(""),
                 _ => return Err("Unknown flag received"),
             }
         }
@@ -58,7 +59,7 @@ impl Config {
         }
 
         Ok(
-            Config { target, dir, ignore_case, workers}
+            Config { target, dir, ignore_case, workers }
         )
     }
 }
