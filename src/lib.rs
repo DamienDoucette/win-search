@@ -12,6 +12,7 @@ pub struct Config {
     target: String,
     ignore_case: bool,
     workers: usize,
+    hide_error: bool,
 }
 
 impl Config {
@@ -22,6 +23,7 @@ impl Config {
         let mut dir : String = String::from(".");
         let mut ignore_case : bool = false;
         let mut workers = 8;
+        let mut hide_error : bool = false;
 
         // Parse the arguments provided into positional Arguments, Flags, and Keywork Arguments
         let mut parsed_args : Args;
@@ -44,6 +46,7 @@ impl Config {
             match flag.as_str() {
                 "-ic" => ignore_case = true,
                 "-h" => return Err(""),
+                "-he" => hide_error = true,
                 _ => return Err("Unknown flag received"),
             }
         }
@@ -59,7 +62,7 @@ impl Config {
         }
 
         Ok(
-            Config { target, dir, ignore_case, workers }
+            Config { target, dir, ignore_case, workers, hide_error }
         )
     }
 }
@@ -109,7 +112,9 @@ fn search_workers(config : Config) {
                             }
                         },
                         Err(err) => {
-                            eprintln!("Unable to read directory {current_dir}: {err}");
+                            if !config.hide_error {
+                                eprintln!("Unable to read directory {current_dir}: {err}");
+                            }
                         }
                     }
                 } else {
@@ -132,24 +137,31 @@ fn search_single_thread(config: Config) {
     // Perform the search
     while let Some(current_dir) = heap.pop() {
         // Read the contents of the directory
-        if let Ok(contents) = fs::read_dir(current_dir){
-            for file in contents {
-                let file = file.unwrap();
-                let file_string = file.path().into_os_string().into_string().unwrap();
-                if config.ignore_case {
-                    if file_string.to_lowercase().contains(target.as_str()) {
-                        println!("{}", &file_string);
+        match fs::read_dir(&current_dir) {
+            Ok(contents) => {
+                for file in contents {
+                    let file = file.unwrap();
+                    let file_string = file.path().into_os_string().into_string().unwrap();
+                    if config.ignore_case {
+                        if file_string.to_lowercase().contains(target.as_str()) {
+                            println!("{}", &file_string);
+                        }
+                    } else {
+                        if file_string.contains(target.as_str()) {
+                            println!("{}", &file_string);
+                        }
                     }
-                } else {
-                    if file_string.contains(target.as_str()) {
-                        println!("{}", &file_string);
+        
+                    if file.metadata().unwrap().is_dir() {
+                        heap.push(file_string);
                     }
                 }
-    
-                if file.metadata().unwrap().is_dir() {
-                    heap.push(file_string);
+            },
+            Err(err) => {
+                if !config.hide_error {
+                    eprintln!("Unable to read directory {current_dir}: {err}");
                 }
             }
-        };
+        }
     }
 }
